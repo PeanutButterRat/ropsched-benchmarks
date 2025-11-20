@@ -16,9 +16,13 @@ def abspath(path: str) -> Path:
 
 
 # Runs a command with specific environment variables.
-def run(cmd: str, env: dict = None, action: str = "RUN"):
+def run(cmd: str, env: dict = None, action: str = "RUN", debug: bool = False):
     print(f"[{action}] {' '.join(map(str, cmd))}")
-    subprocess.run(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+
+    if debug:
+        subprocess.run(cmd, env=env, check=True)
+    else:
+        subprocess.run(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
 
 
 # Compilation configurations for benchmarking RopSched. The first element of the tuple is the scheduler to use (-misched=...)
@@ -46,13 +50,13 @@ RESULTS = abspath("results")
 
 
 # Generates the CMake files for a repository and builds it for each configuration.
-def build_benchmark(repository: Path, flags: str) -> list[Path]:
+def build_benchmark(repository: Path, flags: str, debug: bool = False) -> list[Path]:
     resulting_binaries = []
 
     for config, misched_flags in CONFIGS.items():
         build_directory = repository / f"build/{config}"
         build_directory.mkdir(parents=True, exist_ok=True)
-        config_flags = flags + f"-mllvm -misched={misched_flags[0]} -mllvm -misched-postra={misched_flags[1]}"
+        config_flags = flags + f"-mllvm -enable-misched=true -mllvm -misched={misched_flags[0]} -mllvm -misched-postra={misched_flags[1]}"
 
         # Set up the flags.
         env = os.environ.copy()
@@ -62,8 +66,8 @@ def build_benchmark(repository: Path, flags: str) -> list[Path]:
         env["CXXFLAGS"] = config_flags
 
         # Generate CMake file and build the benchmark.
-        run(["cmake", "-S", str(repository), "-B", str(build_directory)], env=env, action=" CMAKE ")
-        run(["cmake", "--build", str(build_directory)], env=env, action=" BUILD ")
+        run(["cmake", "-S", str(repository), "-B", str(build_directory)], env=env, action=" CMAKE ", debug=debug)
+        run(["cmake", "--build", str(build_directory)], env=env, action=" BUILD ", debug=debug)
 
         # Copy the resulting binary to a separate folder for uniformity.
         binary_path = build_directory / BENCHMARK_TARGETS[repository.name]
@@ -77,7 +81,7 @@ def build_benchmark(repository: Path, flags: str) -> list[Path]:
 
 
 # Runs GadgetSetAnalyzer for each configuration.
-def compare_benchmark(name: str, binaries: list[Path]) -> Path:
+def compare_benchmark(name: str, binaries: list[Path], debug: bool = False) -> Path:
     original = str(binaries[0])
     variants = [f"{variant.suffix[1:]}={variant}" for variant in binaries[1:]]
     old_results = str(RESULTS / name)
@@ -85,7 +89,7 @@ def compare_benchmark(name: str, binaries: list[Path]) -> Path:
     if os.path.isdir(old_results):
         shutil.rmtree(old_results)
 
-    run(["python3", GSA / "src/GSA.py", original, "--variants", *variants, "--output_metrics", "--result_folder_name", name], action="COMPARE")
+    run(["python3", GSA / "src/GSA.py", original, "--variants", *variants, "--output_metrics", "--result_folder_name", name], action="COMPARE", debug=debug)
 
     return abspath("results") / f"{name}/Gadget Quality.csv"
 
@@ -119,13 +123,27 @@ def concatenate_results(results: list[Path]):
             current_benchmark = benchmark
             start_row = row
 
+    for row in ws.iter_cols(3):
+        row_name = row[0].value
+
+        for cell in filter(lambda cell: cell.value is not None, row[1:]):
+            value = str(cell.value)
+
+            if ("+" in value and "Gadget Quality" in row_name) or ("-" in value and "Number" in row_name):
+                cell.style = "Good"
+            elif ("-" in value and "Gadget Quality" in row_name) or ("+" in value and "Number" in row_name):
+                cell.style = "Bad"
+            elif "(" in value:
+                cell.style = "Neutral"
+
     wb.save(output)
 
 
 def main():
     parser = argparse.ArgumentParser(description="Benchmark LLVM scheduler configurations with GadgetSetAnalyzer.")
-    parser.add_argument("--benchmarks", default="all", help="Benchmarks to run (comma-separated list)")
-    parser.add_argument("--flags", default="-O2 -mllvm -enable-misched=true", help="Clang flags to use when compiling benchmarks")
+    parser.add_argument("-b", "--benchmarks", default="all", help="Benchmarks to run (comma-separated list)")
+    parser.add_argument("--flags", default="-O2", help="Clang flags to use when compiling benchmarks")
+    parser.add_argument("-d", "--debug", action="store_true", help="Show command output")
     args = parser.parse_args()
 
     benchmarks = [repository for repository in BENCHMARKS.iterdir()]
@@ -137,8 +155,8 @@ def main():
 
     for benchmark in benchmarks:
         print(f"\nBenchmark: {benchmark.name}")
-        binaries = build_benchmark(benchmark, args.flags)
-        output = compare_benchmark(benchmark.name, binaries)
+        binaries = build_benchmark(benchmark, args.flags, args.debug)
+        output = compare_benchmark(benchmark.name, binaries, args.debug)
         results.append(output)
 
     concatenate_results(results)
