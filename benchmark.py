@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
-import os
+import os, sys
 import shutil
 import subprocess
 from pathlib import Path
@@ -10,91 +10,46 @@ import pandas as pd
 from openpyxl import load_workbook
 from openpyxl.styles import Alignment
 from datetime import datetime
+import traceback
 
 
-def abspath(path: str) -> Path:
-    return Path(path).expanduser().resolve()
+parser = argparse.ArgumentParser(description="Benchmark LLVM scheduler configurations with GadgetSetAnalyzer.")
+parser.add_argument("-b", "--benchmarks", default="all", help="Benchmarks to run (comma-separated list)")
+parser.add_argument("--flags", default="", help="Clang flags to use when compiling benchmarks")
+parser.add_argument("-d", "--debug", action="store_true", help="Show command output")
+parser.add_argument("--skip-build", action="store_true", help="Skip the build step (just compare and generate the results spreadsheet)")
+parser.add_argument("--skip-compare", action="store_true", help="Skip the compare step (just generate the results spreadsheet)")
+args = parser.parse_args()
 
 
-# Runs a command with specific environment variables.
-def run(cmd: str, env: dict = None, action: str = "RUN", debug: bool = False):
-    print(f"[{action}] {' '.join(map(str, cmd))}")
-
-    if debug:
-        subprocess.run(cmd, env=env, check=True)
-    else:
-        subprocess.run(cmd, env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-
-
-# Compilation configurations for benchmarking RopSched. The first element of the tuple is the scheduler to use (-misched=...)
-# while the second controls whether post-RA scheduling is enabled.
-CONFIGS = {
-    "Original": ("default", "false"),
-    "Pre-RA": ("ropsched", "false"),
-    "Post-RA": ("default", "true"),
-    "Both": ("ropsched", "true"),
+configs = {
+    "Original": "--misched=default --misched-postra=false",
+    "Pre-RA": "--misched=ropsched --misched-postra=false",
+    "Post-RA": "--misched=default --misched-postra=true",
+    "Both": "--misched=ropsched --misched-postra=true",
 }
 
-# These are the repositories that are benchmarked. Keys are directory names while the values are
-# the relative paths of where the final binary is located after building the repo.
-BENCHMARK_TARGETS =  {
-    "mimalloc": "libmimalloc.so.3.0",
-    "chocolate-doom": "src/chocolate-doom",
-    "zlib": "libz.so.1.3.1"
-}
+cwd = Path(os.path.realpath(__file__)).expanduser().resolve().parent  # Everything is relative to where this script is actually located.
+clang = cwd / "llvm-ropsched/build/bin/clang"
+gsa = cwd / "GadgetSetAnalyzer"
+results = cwd / "results"
+binaries = results / "binaries"
+output = results / "results.xlsx"
+time = datetime.now().strftime("%b %d, %Y %I∶%M∶%S %p")
 
-CLANG = abspath("llvm-ropsched/build/bin/clang")
-GSA = abspath("GadgetSetAnalyzer")
-BENCHMARKS = abspath("samples")
-BINARIES_DESTINATION = BENCHMARKS.parent / "binaries"
-RESULTS = abspath("results")
+benchmarks = cwd / "benchmarks"
+benchmarks = list(benchmarks.iterdir())
 
 
-# Generates the CMake files for a repository and builds it for each configuration.
-def build_benchmark(repository: Path, flags: str, debug: bool = False) -> list[Path]:
-    resulting_binaries = []
+if args.benchmarks != "all":
+    selected = args.benchmarks.split(",")
+    available = [benchmark.name for benchmark in benchmarks]
 
-    for config, misched_flags in CONFIGS.items():
-        build_directory = repository / f"build/{config}"
-        if os.path.isdir(build_directory):
-            shutil.rmtree(build_directory)
+    for benchmark in selected:
+        if benchmark not in available:
+            parser.error(f"unknown benchmark '{benchmark}'")
 
-        build_directory.mkdir(parents=True, exist_ok=True)
-        config_flags = flags + f" -mllvm -enable-misched=true -mllvm -misched={misched_flags[0]} -mllvm -misched-postra={misched_flags[1]}"
-
-        # Set up the flags.
-        env = os.environ.copy()
-        env["CC"] = str(CLANG)
-        env["CXX"] = str(CLANG)
-        env["CFLAGS"] = config_flags
-        env["CXXFLAGS"] = config_flags
-
-        # Generate CMake file and build the benchmark.
-        run(["cmake", "-S", str(repository), "-B", str(build_directory)], env=env, action=" CMAKE ", debug=debug)
-        run(["cmake", "--build", str(build_directory)], env=env, action=" BUILD ", debug=debug)
-
-        # Copy the resulting binary to a separate folder for uniformity.
-        binary_path = build_directory / BENCHMARK_TARGETS[repository.name]
-        destination_path = BINARIES_DESTINATION / f"{repository.name}.{config}"
-        run(["cp", str(binary_path), str(destination_path)], action=" COPY  ")
-
-        resulting_binaries.append(destination_path)
-
-    return resulting_binaries
-
-
-# Runs GadgetSetAnalyzer for each configuration.
-def compare_benchmark(name: str, binaries: list[Path], debug: bool = False) -> Path:
-    original = str(binaries[0])
-    variants = [f"{variant.suffix[1:]}={variant}" for variant in binaries[1:]]
-    old_results = str(RESULTS / name)
-
-    if os.path.isdir(old_results):
-        shutil.rmtree(old_results)
-
-    run(["python3", GSA / "src/GSA.py", original, "--variants", *variants, "--output_metrics", "--result_folder_name", name], action="COMPARE", debug=debug)
-
-    return abspath("results") / f"{name}/Gadget Quality.csv"
+    benchmarks = sorted(list(filter(lambda benchmark: benchmark.name in set(selected), benchmarks)))
 
 
 def format(x: float) -> str:
@@ -102,7 +57,7 @@ def format(x: float) -> str:
     return f"{sign}{x:.3f}"
 
 
-def highlight(ws, cell):
+def highlight(ws, cell) -> None:
     header = ws.cell(1, cell.column).value
     value = str(cell.value)
 
@@ -110,119 +65,166 @@ def highlight(ws, cell):
         cell.style = "Good"
     elif ("-" in value and "Gadget Quality" in header) or ("+" in value and "Number" in header):
         cell.style = "Bad"
-    else:
+    elif "(" in value:
         cell.style = "Neutral"
 
 
-# Concatentates all the separate CSV files generated by GadgetSetAnalyzer into a single Excel workbook (.xlsx).
-def concatenate_results(results: list[Path], flags: str):
+def run(cmd: str, cwd: Path, env: dict = None) -> None:
+    stdout, stderr = (None, None) if args.debug else (subprocess.DEVNULL, subprocess.DEVNULL)
+    subprocess.run(cmd, cwd=cwd, env=env, stdout=stdout, stderr=stderr, check=True)
+
+
+def build(benchmark: Path) -> list[Path]:
+    release = benchmark / "target" / "release"
+    paths = []
+
+    for config, misched in configs.items():
+        if os.path.exists(release):
+            shutil.rmtree(release)
+
+        flags = misched.split(" ") + args.flags.split(" ")
+        flags = [f"-C llvm-args={flag}" for flag in flags]
+        flags = " ".join(flags)
+        env = os.environ.copy()
+        env["RUSTFLAGS"] = flags
+
+        run(["cargo", "build", "--release"], benchmark, env=env)
+
+        binary = None
+
+        for filename in sorted(os.listdir(release)):
+            filepath = release / filename
+            if os.path.isfile(filepath) and os.access(filepath, os.X_OK):
+                binary = filepath
+                break
+
+        if binary is None:
+            for filename in sorted(os.listdir(release)):
+                if filename.endswith(".rlib"):
+                    filepath = release / filename
+                    binary = filepath
+                    break
+
+        if binary is None:
+            return paths
+
+        filename = f"{benchmark.name}.{config}" if (benchmark.name == binary.name) else f"{benchmark.name} ({filename}).{config}"
+        destination = binaries / filename
+
+        shutil.copy2(release / binary, destination)
+
+        paths.append(destination)
+
+    return paths
+
+
+def compare(original: Path, variants: list[Path]) -> Path:
+    name = original.stem
+    old = gsa / "results" / name
+    variants = [f"{variant.suffix[1:]}={variant}" for variant in variants]
+
+    if not args.skip_compare:
+        if os.path.exists(old):
+            shutil.rmtree(old)
+
+        run(["python3", "src/GSA.py", str(original), "--variants", *variants, "--output_metrics", "--result_folder_name", name], cwd=gsa)
+
+    return old / "Gadget Quality.csv"
+
+
+def combine(files: list[Path]):
     dataframes = []
 
-    for csv in results:
+    # Combine all the individual CSV files into a single dataframe.
+    for csv in files:
         df = pd.read_csv(csv)
         df.insert(0, "Benchmark", csv.parent.name)
         dataframes.append(df)
 
     data = pd.concat(dataframes, ignore_index=True)
 
-    output = abspath("results.xlsx")
-    mode = "w" if not output.exists() else "a"
-    if_new_sheet_exists = "new" if mode == "a" else None
+    # Convert the dataframe to an Excel workbook.
+    mode = "w"
+    if_new_sheet_exists = None
+
+    # Add to the existing results if the spreadsheet already exists.
+    if output.exists():
+        mode = "a"
+        if_new_sheet_exists = "new"
 
     with pd.ExcelWriter(output, engine="openpyxl", mode=mode, if_sheet_exists=if_new_sheet_exists) as writer:
-        now = datetime.now()
-        time = now.strftime("%b %d, %Y %I∶%M∶%S %p")
         data.to_excel(writer, sheet_name=time, index=False)
 
+    # Format the results to be a little prettier.
     wb = load_workbook(output)
     ws = wb[wb.sheetnames[-1]]
 
-    num_benchmarks = 0
-    start_row = 2
-    current_benchmark = ws.cell(row=2, column=1).value
+    # Start by merging the benchmark names column.
+    for row in range(2, ws.max_row, 4):
+        ws.merge_cells(start_row=row, start_column=1, end_row=row + 3, end_column=1)
+        ws.cell(row, 1).alignment = Alignment(vertical="center", horizontal="center")
 
-    for row in range(2, ws.max_row + 2):
-        benchmark = ws.cell(row=row, column=1).value
-
-        if benchmark != current_benchmark:
-            ws.merge_cells(start_row=start_row, start_column=1, end_row=row - 1, end_column=1)
-            ws.cell(row=start_row, column=1).alignment = Alignment(vertical="center", horizontal="center")
-
-            current_benchmark = benchmark
-            start_row = row
-
-            num_benchmarks += 1
-
+    # Highlight the results based on whether it was positive, negative, or neutral.
     for row in ws.iter_cols(3):
-        row_name = row[0].value
-
         for cell in filter(lambda cell: cell.value is not None, row[1:]):
-            value = str(cell.value)
+            highlight(ws, cell)
 
-            if ("+" in value and "Gadget Quality" in row_name) or ("-" in value and "Number" in row_name):
-                cell.style = "Good"
-            elif ("-" in value and "Gadget Quality" in row_name) or ("+" in value and "Number" in row_name):
-                cell.style = "Bad"
-            elif "(" in value:
-                cell.style = "Neutral"
+    # Calculate the average results for each category accross each variant.
+    averages = [[0 for _ in range(6)] for _ in range(3)]  # 6 categories of ROP metrics x 3 scheduling variants.
 
-    averages = [[0 for _ in range(6)] for _ in range(3)]
+    for benchmark in range(len(benchmarks)):
+        srow = benchmark * 4 + 2
 
-    for benchmark in range(num_benchmarks):
-        start_row = benchmark * len(CONFIGS) + 2
-
-        for i, row in enumerate(ws.iter_rows(start_row + 1, start_row + len(CONFIGS) - 1)):
+        for i, row in enumerate(ws.iter_rows(srow + 1, srow + 4 - 1)):
             for j, cell in enumerate(row[2:]):
                 difference = cell.value[cell.value.find('(') + 1: cell.value.find(')')]
                 averages[i][j] += float(difference)
 
-    last_row = ws.max_row + 1
+    # Write the flags for the run.
+    lrow = ws.max_row + 2
+    ws.merge_cells(f"B{lrow}:I{lrow}")
+    ws[f"A{lrow}"].value = "Extra Flags"
+    ws[f"B{lrow}"].value = args.flags if args.flags else "None"
 
-    # Add the flags for the run.
-    row = ws.max_row + 1
-    ws.merge_cells(f"B{last_row}:I{last_row}")
-    ws[f"A{last_row}"].value = "Flags"
-    ws[f"B{last_row}"].value = flags
-
-    last_row += 1
-    ws.merge_cells(start_row=last_row, start_column=1, end_row=last_row + 2, end_column=1)
-    cell = ws.cell(last_row, 1, "Average Difference")
+    # Write the average results for the run.
+    lrow += 1
+    ws.merge_cells(start_row=lrow, start_column=1, end_row=lrow + 2, end_column=1)
+    cell = ws.cell(lrow, 1, "Average Difference")
     cell.alignment = Alignment(vertical="center", horizontal="center")
 
-    for i, config in enumerate(list(CONFIGS.keys())[1:]):
-        ws.cell(last_row + i, 2, config)
+    for i, config in enumerate(list(configs.keys())[1:]):
+        ws.cell(lrow + i, 2, config)
 
     for i in range(len(averages)):
         for j in range(len(averages[0])):
-            averages[i][j] /= num_benchmarks
-            cell = ws.cell(last_row + i, 3 + j, value=format(averages[i][j]))
+            averages[i][j] /= len(benchmarks)
+            cell = ws.cell(lrow + i, 3 + j, value=format(averages[i][j]))
             highlight(ws, cell)
 
     wb.save(output)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="Benchmark LLVM scheduler configurations with GadgetSetAnalyzer.")
-    parser.add_argument("-b", "--benchmarks", default="all", help="Benchmarks to run (comma-separated list)")
-    parser.add_argument("--flags", default="-O2", help="Clang flags to use when compiling benchmarks")
-    parser.add_argument("-d", "--debug", action="store_true", help="Show command output")
-    args = parser.parse_args()
+if not os.path.exists(binaries):
+    os.makedirs(binaries)
 
-    benchmarks = [repository for repository in BENCHMARKS.iterdir()]
-
-    if args.benchmarks != "all":
-        benchmarks = filter(lambda benchmark: benchmark.name in args.benchmarks.split(","), benchmarks)
-
-    results = []
+try:
+    files = []
 
     for benchmark in benchmarks:
-        print(f"\nBenchmark: {benchmark.name}")
-        binaries = build_benchmark(benchmark, args.flags, args.debug)
-        output = compare_benchmark(benchmark.name, binaries, args.debug)
-        results.append(output)
+        try:
+            paths = build(benchmark)
+            path = compare(paths[0], paths[1:])
+            files.append(path)
+        except Exception as e:
+            print("Failed: ", benchmark, e)
+            continue
 
-    concatenate_results(results, args.flags)
+    path = combine(files)
 
-
-if __name__ == "__main__":
-    main()
+except Exception as exception:
+    if args.debug:
+        traceback.print_exc()
+    else:
+        _, _, tb = sys.exc_info()
+        tb = traceback.extract_tb(tb)[-1]
+        print(f"An error occurred: {exception}")

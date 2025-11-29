@@ -162,5 +162,5 @@ cython_debug/
 
 # Project-specific ignores
 *.xlsx
-binaries/
+benchmarks/
 results/
