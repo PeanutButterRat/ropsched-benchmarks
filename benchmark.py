@@ -1,29 +1,30 @@
 #!/usr/bin/env python3
-
 import argparse
-import os, sys
+import os
 import shutil
 import subprocess
+from collections.abc import Callable
+from datetime import datetime
 from pathlib import Path
+from time import time
 
 import pandas as pd
 from openpyxl import load_workbook
+from openpyxl.cell.cell import Cell
 from openpyxl.styles import Alignment
-from datetime import datetime
-import traceback
-
+from openpyxl.worksheet.worksheet import Worksheet
+from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 
 parser = argparse.ArgumentParser(description="Benchmark LLVM scheduler configurations with GadgetSetAnalyzer.")
 parser.add_argument("-b", "--benchmarks", default="all", help="Benchmarks to run (comma-separated list)")
-parser.add_argument("--flags", default="", help="Clang flags to use when compiling benchmarks")
+parser.add_argument("-c", "--configs", default="all", help="Scheduling configs to run (comma-separated list: [pre-ra, post-ra, both])")
+parser.add_argument("-f", "--flags", default="", help="Clang flags to use when compiling benchmarks")
 parser.add_argument("-d", "--debug", action="store_true", help="Show command output")
-parser.add_argument("--skip-build", action="store_true", help="Skip the build step (just compare and generate the results spreadsheet)")
-parser.add_argument("--skip-compare", action="store_true", help="Skip the compare step (just generate the results spreadsheet)")
+parser.add_argument("-t", "--timeout", type=int, default=None, help="Timeout in seconds for a single command invocation")
 args = parser.parse_args()
 
-
 configs = {
-    "Original": "--misched=default --misched-postra=false",
+    "Default": "--misched=default --misched-postra=false",
     "Pre-RA": "--misched=ropsched --misched-postra=false",
     "Post-RA": "--misched=default --misched-postra=true",
     "Both": "--misched=ropsched --misched-postra=true",
@@ -35,12 +36,12 @@ gsa = cwd / "GadgetSetAnalyzer"
 results = cwd / "results"
 binaries = results / "binaries"
 output = results / "results.xlsx"
-time = datetime.now().strftime("%b %d, %Y %I∶%M∶%S %p")
+now = datetime.now().strftime("%b %d, %Y %I∶%M∶%S %p")
 
 benchmarks = cwd / "benchmarks"
 benchmarks = list(benchmarks.iterdir())
 
-
+# Validate only available benchmarks were selected.
 if args.benchmarks != "all":
     selected = args.benchmarks.split(",")
     available = [benchmark.name for benchmark in benchmarks]
@@ -51,13 +52,25 @@ if args.benchmarks != "all":
 
     benchmarks = sorted(list(filter(lambda benchmark: benchmark.name in set(selected), benchmarks)))
 
+# Validate only available configs were selected.
+if args.configs != "all":
+    selected = args.configs.split(",")
+    available = set([name.lower() for name in configs.keys()])
+
+    for config in selected:
+        if config not in available:
+            parser.error(f"unknown config '{config}'")
+
+    for config in list(configs.keys()):
+        if config.lower() != "default" and config.lower() not in selected:
+            del configs[config]
 
 def format(x: float) -> str:
     sign = "+" if x > 0 else ""
     return f"{sign}{x:.3f}"
 
 
-def highlight(ws, cell) -> None:
+def highlight(ws: Worksheet, cell: Cell) -> None:
     header = ws.cell(1, cell.column).value
     value = str(cell.value)
 
@@ -71,11 +84,36 @@ def highlight(ws, cell) -> None:
 
 def run(cmd: str, cwd: Path, env: dict = None) -> None:
     stdout, stderr = (None, None) if args.debug else (subprocess.DEVNULL, subprocess.DEVNULL)
-    subprocess.run(cmd, cwd=cwd, env=env, stdout=stdout, stderr=stderr, check=True)
+    subprocess.run(cmd, cwd=cwd, env=env, stdout=stdout, stderr=stderr, check=True, timeout=args.timeout)
 
 
-def build(benchmark: Path) -> list[Path]:
+def find(benchmark: str, release: Path) -> Path | None:
+    filepath = release / benchmark
+
+    # If there is an binary that has the same name as the benchmark, return that.
+    if os.path.isfile(filepath) and os.access(filepath, os.X_OK):
+        return filepath
+
+    filenames = sorted(os.listdir(release))
+
+    # Otherwise, prioritize any shared libary generated with the benchmark name.
+    for filename in filenames:
+        if benchmark in filename and filename.endswith(".so"):
+            return release / filename
+
+
+    # Otherwise, prioritize any binary artifact in the folder.
+    for filename in filenames:
+        filepath = release / filename
+        if os.path.isfile(filepath) and os.access(filepath, os.X_OK):
+            return filepath
+
+    return None
+
+
+def build(benchmark: Path, update: Callable[[str], None]) -> list[Path]:
     release = benchmark / "target" / "release"
+    binary = None
     paths = []
 
     for config, misched in configs.items():
@@ -87,32 +125,19 @@ def build(benchmark: Path) -> list[Path]:
         flags = " ".join(flags)
         env = os.environ.copy()
         env["RUSTFLAGS"] = flags
+        env["RUSTUP_TOOLCHAIN"] = "ropsched"
 
+        update(config)  # Update the status bar with the current step.
         run(["cargo", "build", "--release"], benchmark, env=env)
 
-        binary = None
-
-        for filename in sorted(os.listdir(release)):
-            filepath = release / filename
-            if os.path.isfile(filepath) and os.access(filepath, os.X_OK):
-                binary = filepath
-                break
-
         if binary is None:
-            for filename in sorted(os.listdir(release)):
-                if filename.endswith(".rlib"):
-                    filepath = release / filename
-                    binary = filepath
-                    break
+            binary = find(benchmark.name, release)
+            if binary is None:
+                raise RuntimeError(f"could not find binary file for {benchmark.name}")
 
-        if binary is None:
-            return paths
-
-        filename = f"{benchmark.name}.{config}" if (benchmark.name == binary.name) else f"{benchmark.name} ({filename}).{config}"
+        filename = f"{benchmark.name}.{config}" if (benchmark.name == binary.name) else f"{benchmark.name} ({binary.name}).{config}"
         destination = binaries / filename
-
         shutil.copy2(release / binary, destination)
-
         paths.append(destination)
 
     return paths
@@ -123,16 +148,15 @@ def compare(original: Path, variants: list[Path]) -> Path:
     old = gsa / "results" / name
     variants = [f"{variant.suffix[1:]}={variant}" for variant in variants]
 
-    if not args.skip_compare:
-        if os.path.exists(old):
-            shutil.rmtree(old)
+    if os.path.exists(old):
+        shutil.rmtree(old)
 
-        run(["python3", "src/GSA.py", str(original), "--variants", *variants, "--output_metrics", "--result_folder_name", name], cwd=gsa)
+    run(["python3", "src/GSA.py", str(original), "--variants", *variants, "--output_metrics", "--result_folder_name", name], cwd=gsa)
 
     return old / "Gadget Quality.csv"
 
 
-def combine(files: list[Path]):
+def combine(files: list[Path]) -> Path:
     dataframes = []
 
     # Combine all the individual CSV files into a single dataframe.
@@ -144,24 +168,23 @@ def combine(files: list[Path]):
     data = pd.concat(dataframes, ignore_index=True)
 
     # Convert the dataframe to an Excel workbook.
-    mode = "w"
-    if_new_sheet_exists = None
-
-    # Add to the existing results if the spreadsheet already exists.
-    if output.exists():
+    if output.exists(): # Append to the existing results if the spreadsheet already exists.
         mode = "a"
         if_new_sheet_exists = "new"
+    else:
+        mode = "w"
+        if_new_sheet_exists = None
 
     with pd.ExcelWriter(output, engine="openpyxl", mode=mode, if_sheet_exists=if_new_sheet_exists) as writer:
-        data.to_excel(writer, sheet_name=time, index=False)
+        data.to_excel(writer, sheet_name=now, index=False)
 
     # Format the results to be a little prettier.
     wb = load_workbook(output)
     ws = wb[wb.sheetnames[-1]]
 
     # Start by merging the benchmark names column.
-    for row in range(2, ws.max_row, 4):
-        ws.merge_cells(start_row=row, start_column=1, end_row=row + 3, end_column=1)
+    for row in range(2, ws.max_row, len(configs)):
+        ws.merge_cells(start_row=row, start_column=1, end_row=row + len(configs) - 1, end_column=1)
         ws.cell(row, 1).alignment = Alignment(vertical="center", horizontal="center")
 
     # Highlight the results based on whether it was positive, negative, or neutral.
@@ -170,14 +193,14 @@ def combine(files: list[Path]):
             highlight(ws, cell)
 
     # Calculate the average results for each category accross each variant.
-    averages = [[0 for _ in range(6)] for _ in range(3)]  # 6 categories of ROP metrics x 3 scheduling variants.
+    averages = [[0 for _ in range(6)] for _ in range(len(configs) - 1)]  # 6 categories of ROP metrics x number of scheduling variants.
 
-    for benchmark in range(len(benchmarks)):
-        srow = benchmark * 4 + 2
-
-        for i, row in enumerate(ws.iter_rows(srow + 1, srow + 4 - 1)):
+    for benchmark in range(len(files)):
+        srow = benchmark * len(configs) + 2
+        for i, row in enumerate(ws.iter_rows(srow + 1, srow + len(configs) - 1)):
             for j, cell in enumerate(row[2:]):
-                difference = cell.value[cell.value.find('(') + 1: cell.value.find(')')]
+                value = str(cell.value)
+                difference = cell.value[value.find('(') + 1: value.find(')')]
                 averages[i][j] += float(difference)
 
     # Write the flags for the run.
@@ -188,7 +211,7 @@ def combine(files: list[Path]):
 
     # Write the average results for the run.
     lrow += 1
-    ws.merge_cells(start_row=lrow, start_column=1, end_row=lrow + 2, end_column=1)
+    ws.merge_cells(start_row=lrow, start_column=1, end_row=lrow + len(configs) - 2, end_column=1)
     cell = ws.cell(lrow, 1, "Average Difference")
     cell.alignment = Alignment(vertical="center", horizontal="center")
 
@@ -197,34 +220,76 @@ def combine(files: list[Path]):
 
     for i in range(len(averages)):
         for j in range(len(averages[0])):
-            averages[i][j] /= len(benchmarks)
+            averages[i][j] /= len(files)
             cell = ws.cell(lrow + i, 3 + j, value=format(averages[i][j]))
             highlight(ws, cell)
 
     wb.save(output)
 
+    return output
+
 
 if not os.path.exists(binaries):
     os.makedirs(binaries)
 
+
+files = []
+
 try:
-    files = []
+    start = time()
 
-    for benchmark in benchmarks:
-        try:
-            paths = build(benchmark)
-            path = compare(paths[0], paths[1:])
-            files.append(path)
-        except Exception as e:
-            print("Failed: ", benchmark, e)
-            continue
+    with Progress(
+        SpinnerColumn(style="bold cyan"),
+        TextColumn("[bold white]Running Benchmarks[/]"),
+        BarColumn(),
+        TextColumn("[bold cyan]{task.completed}/{task.total}"),
+        TextColumn("[bold magenta]{task.percentage:>3.0f}%"),
+        TextColumn("[bold yellow]ETA: {task.fields[eta]}"),
+        TextColumn("[bold cyan]Benchmark: {task.fields[benchmark]} -> {task.fields[step]}"),
+        transient=True,
+    ) as progress:
 
-    path = combine(files)
+        task = progress.add_task("Running Benchmarks", total=len(benchmarks), eta="--:--", benchmark="---", step="---")
+
+        for benchmark in benchmarks:
+            timer = time()
+            progress.update(task, benchmark=benchmark.name)
+            try:
+                paths = build(benchmark, lambda variant: progress.update(task, step=f"Compiling '{variant}' Variant"))
+                progress.update(task, step="Comparing Variants")
+                path = compare(paths[0], paths[1:])
+                files.append(path)
+            except Exception as e:
+                print(f"Error with {benchmark.name}: {e}")
+
+            completed = progress.tasks[task].completed + 1
+            total = progress.tasks[task].total
+            elapsed = time() - start
+
+            if completed > 0:
+                rate = elapsed / completed
+                seconds = int(rate * (total - completed))
+
+                hours = seconds // 3600
+                minutes = (seconds % 3600) // 60
+                seconds = seconds % 60
+
+                eta = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+            else:
+                eta = "--:--:--"
+
+            progress.update(task, advance=1, eta=eta)
+            duration = time() - timer
+            print(f"Finished {benchmark.name} in {duration:.3f} seconds")
+
+    output = combine(files)
+    print(f"Benchmark results compiled at {output}")
+
+except KeyboardInterrupt:
+    if files:
+        print(f"Stopping early, compiling results from {len(files)}/{len(benchmarks)} benchmarks...")
+        output = combine(files)
+        print(f"Benchmark results compiled at {output}")
 
 except Exception as exception:
-    if args.debug:
-        traceback.print_exc()
-    else:
-        _, _, tb = sys.exc_info()
-        tb = traceback.extract_tb(tb)[-1]
-        print(f"An error occurred: {exception}")
+    print(f"An unexpected error occurred: {exception}")
