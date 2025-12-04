@@ -21,6 +21,7 @@ parser.add_argument("-c", "--configs", default="all", help="Scheduling configs t
 parser.add_argument("-f", "--flags", default="", help="Clang flags to use when compiling benchmarks")
 parser.add_argument("-d", "--debug", action="store_true", help="Show command output")
 parser.add_argument("-t", "--timeout", type=int, default=None, help="Timeout in seconds for a single command invocation")
+parser.add_argument("--show-times", action="store_true", help="Display the time it takes for each benchmark to complete")
 args = parser.parse_args()
 
 configs = {
@@ -48,7 +49,8 @@ if args.benchmarks != "all":
 
     for benchmark in selected:
         if benchmark not in available:
-            parser.error(f"unknown benchmark '{benchmark}'")
+            available = ",".join(available)
+            parser.error(f"unknown benchmark '{benchmark}' not found in '{available}'")
 
     benchmarks = sorted(list(filter(lambda benchmark: benchmark.name in set(selected), benchmarks)))
 
@@ -68,6 +70,13 @@ if args.configs != "all":
 def format(x: float) -> str:
     sign = "+" if x > 0 else ""
     return f"{sign}{x:.3f}"
+
+
+def ftime(seconds: int):
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+    seconds = seconds % 60
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
 def highlight(ws: Worksheet, cell: Cell) -> None:
@@ -194,14 +203,21 @@ def combine(files: list[Path]) -> Path:
 
     # Calculate the average results for each category accross each variant.
     averages = [[0 for _ in range(6)] for _ in range(len(configs) - 1)]  # 6 categories of ROP metrics x number of scheduling variants.
+    totals = [[0 for _ in range(6)] for _ in range(len(configs))]
 
     for benchmark in range(len(files)):
         srow = benchmark * len(configs) + 2
-        for i, row in enumerate(ws.iter_rows(srow + 1, srow + len(configs) - 1)):
+        for i, row in enumerate(ws.iter_rows(srow, srow + len(configs) - 1)):
             for j, cell in enumerate(row[2:]):
                 value = str(cell.value)
-                difference = cell.value[value.find('(') + 1: value.find(')')]
-                averages[i][j] += float(difference)
+                if i == 0:
+                    totals[0][j] += float(value)
+                else:
+                    difference = cell.value[value.find('(') + 1: value.find(')')]
+                    total = cell.value[:value.find('(')]
+                    averages[i - 1][j] += float(difference)
+                    totals[i][j] += float(total)
+
 
     # Write the flags for the run.
     lrow = ws.max_row + 2
@@ -222,6 +238,23 @@ def combine(files: list[Path]) -> Path:
         for j in range(len(averages[0])):
             averages[i][j] /= len(files)
             cell = ws.cell(lrow + i, 3 + j, value=format(averages[i][j]))
+            highlight(ws, cell)
+
+    # Write the total percent differences for the run.
+    lrow += len(configs) - 1
+    ws.merge_cells(start_row=lrow, start_column=1, end_row=lrow + len(configs) - 2, end_column=1)
+    cell = ws.cell(lrow, 1, "Total Percent Difference")
+    cell.alignment = Alignment(vertical="center", horizontal="center")
+
+    for i, config in enumerate(list(configs.keys())[1:]):
+        ws.cell(lrow + i, 2, config)
+
+    for i in range(1, len(averages) + 1):
+        for j in range(len(averages[0])):
+            baseline = totals[0][j]
+            percentage = (totals[i][j] - baseline) / baseline
+            percentage = f"{'+' if percentage > 0 else ''}{percentage:.2%}"
+            cell = ws.cell(lrow + i - 1, 3 + j, value=percentage)
             highlight(ws, cell)
 
     wb.save(output)
@@ -269,18 +302,15 @@ try:
             if completed > 0:
                 rate = elapsed / completed
                 seconds = int(rate * (total - completed))
-
-                hours = seconds // 3600
-                minutes = (seconds % 3600) // 60
-                seconds = seconds % 60
-
-                eta = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+                eta = ftime(seconds)
             else:
                 eta = "--:--:--"
 
             progress.update(task, advance=1, eta=eta)
-            duration = time() - timer
-            print(f"Finished {benchmark.name} in {duration:.3f} seconds")
+
+            if args.show_times:
+                duration = int(time() - timer)
+                print(f"Finished {benchmark.name} in {ftime(duration)}")
 
     output = combine(files)
     print(f"Benchmark results compiled at {output}")
