@@ -278,7 +278,7 @@ try:
         TextColumn("[bold cyan]{task.completed}/{task.total}"),
         TextColumn("[bold magenta]{task.percentage:>3.0f}%"),
         TextColumn("[bold yellow]ETA: {task.fields[eta]}"),
-        TextColumn("[bold cyan]Benchmark: {task.fields[benchmark]} -> {task.fields[step]}"),
+        TextColumn("[bold cyan]Benchmark: [bold white]{task.fields[benchmark]} [bold cyan]-> {task.fields[step]}"),
         transient=True,
     ) as progress:
 
@@ -288,7 +288,7 @@ try:
             timer = time()
             progress.update(task, benchmark=benchmark.name)
             try:
-                paths = build(benchmark, lambda variant: progress.update(task, step=f"Compiling '{variant}' Variant"))
+                paths = build(benchmark, lambda variant: progress.update(task, step=f"Compiling {variant} Variant"))
                 progress.update(task, step="Comparing Variants")
                 path = compare(paths[0], paths[1:])
                 files.append(path)
