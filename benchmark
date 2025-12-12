@@ -22,6 +22,7 @@ parser.add_argument("-f", "--flags", default="", help="Clang flags to use when c
 parser.add_argument("-d", "--debug", action="store_true", help="Show command output")
 parser.add_argument("-t", "--timeout", type=int, default=None, help="Timeout in seconds for a single command invocation")
 parser.add_argument("--show-times", action="store_true", help="Display the time it takes for each benchmark to complete")
+parser.add_argument("--skip-compilation", action="store_true", help="Skip the building and comparing steps, just combine the CSV files")
 args = parser.parse_args()
 
 configs = {
@@ -154,15 +155,15 @@ def build(benchmark: Path, update: Callable[[str], None]) -> list[Path]:
 
 def compare(original: Path, variants: list[Path]) -> Path:
     name = original.stem
-    old = gsa / "results" / name
+    output = gsa / "results" / name
     variants = [f"{variant.suffix[1:]}={variant}" for variant in variants]
 
-    if os.path.exists(old):
-        shutil.rmtree(old)
+    if os.path.exists(output):
+        shutil.rmtree(output)
 
     run(["python3", "src/GSA.py", str(original), "--variants", *variants, "--output_metrics", "--result_folder_name", name], cwd=gsa)
 
-    return old / "Gadget Quality.csv"
+    return output / "Gadget Quality.csv"
 
 
 def combine(files: list[Path]) -> Path:
@@ -262,14 +263,12 @@ def combine(files: list[Path]) -> Path:
     return output
 
 
-if not os.path.exists(binaries):
-    os.makedirs(binaries)
-
-
-files = []
-
 try:
+    if not os.path.exists(binaries):
+        os.makedirs(binaries)
+
     start = time()
+    files = []
 
     with Progress(
         SpinnerColumn(style="bold cyan"),
@@ -284,33 +283,46 @@ try:
 
         task = progress.add_task("Running Benchmarks", total=len(benchmarks), eta="--:--", benchmark="---", step="---")
 
-        for benchmark in benchmarks:
-            timer = time()
-            progress.update(task, benchmark=benchmark.name)
-            try:
-                paths = build(benchmark, lambda variant: progress.update(task, step=f"Compiling {variant} Variant"))
-                progress.update(task, step="Comparing Variants")
-                path = compare(paths[0], paths[1:])
-                files.append(path)
-            except Exception as e:
-                print(f"Error with {benchmark.name}: {e}")
+        if not args.skip_compilation:
+            for benchmark in benchmarks:
+                timer = time()
+                progress.update(task, benchmark=benchmark.name)
+                try:
+                    paths = build(benchmark, lambda variant: progress.update(task, step=f"Compiling {variant} Variant"))
+                    progress.update(task, step="Comparing Variants")
+                    csv = compare(paths[0], paths[1:])
+                    files.append(csv)
+                except Exception as e:
+                    print(f"Error with {benchmark.name}: {e}")
 
-            completed = progress.tasks[task].completed + 1
-            total = progress.tasks[task].total
-            elapsed = time() - start
+                completed = progress.tasks[task].completed + 1
+                total = progress.tasks[task].total
+                elapsed = time() - start
 
-            if completed > 0:
-                rate = elapsed / completed
-                seconds = int(rate * (total - completed))
-                eta = ftime(seconds)
-            else:
-                eta = "--:--:--"
+                if completed > 0:
+                    rate = elapsed / completed
+                    seconds = int(rate * (total - completed))
+                    eta = ftime(seconds)
+                else:
+                    eta = "--:--:--"
 
-            progress.update(task, advance=1, eta=eta)
+                progress.update(task, advance=1, eta=eta)
 
-            if args.show_times:
-                duration = int(time() - timer)
-                print(f"Finished {benchmark.name} in {ftime(duration)}")
+                if args.show_times:
+                    duration = int(time() - timer)
+                    print(f"Finished {benchmark.name} in {ftime(duration)}")
+        else:
+            for benchmark in benchmarks:
+                release = benchmark / "target" / "release"
+                binary = find(benchmark.name, release)
+
+                if binary is None:
+                    raise RuntimeError(f"could not find binary file for {benchmark.name}")
+
+                filename = f"{benchmark.name}" if (benchmark.name == binary.name) else f"{benchmark.name} ({binary.name})"
+                csv = gsa / "results" / filename / "Gadget Quality.csv"
+                files.append(csv)
+
 
     output = combine(files)
     print(f"Benchmark results compiled at {output}")
