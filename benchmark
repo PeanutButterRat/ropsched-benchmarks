@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -310,16 +311,7 @@ def combine(files: list[Path]) -> Path:
 
     ws.merge_cells(f"A{start_row}:I{start_row}")
     emphasize(ws[f"A{start_row}"])
-
-    for offset, name in enumerate(["Run Information", "Run Command", "Script Version", "LLVM Version", "Rust Version"]):
-        row = start_row + offset
-
-        if offset == 0:
-            ws.merge_cells(f"A{row}:I{row}")
-        else:
-            ws.merge_cells(f"B{row}:I{row}")
-
-        ws[f"A{row}"] = name
+    ws[f"A{start_row}"].value = "Run Information"
 
     start_row += 1
     this_git_repo_sha = git.Repo(cwd).head.commit.hexsha
@@ -327,11 +319,25 @@ def combine(files: list[Path]) -> Path:
     rust_git_repo_sha = git.Repo(cwd / "rust-ropsched").head.commit.hexsha
     command = " ".join(sys.argv)
 
-    for offset, value in enumerate([command, this_git_repo_sha, llvm_git_repo_sha, rust_git_repo_sha]):
+    metadata = {
+        "Run Command": command,
+        "Script Version": this_git_repo_sha,
+        "LLVM Version": f"{llvm_git_repo_sha} (Forked from 21.1.5)",
+        "Rust Version": f"{rust_git_repo_sha} (Forked from 1.91.1)",
+        "OS": platform.system(),
+        "Version": platform.version(),
+        "Release": platform.release(),
+        "Architecture": platform.machine(),
+        "Python Version": sys.version,
+    }
+
+    for offset, (key, value) in enumerate(metadata.items()):
         row = start_row + offset
-        ws[f"B{row}"] = value
+        ws.merge_cells(f"B{row}:I{row}")
         ws[f"A{row}"].alignment = Alignment(vertical="center", horizontal="center")
         ws[f"A{row}"].font = Font(bold=True)
+        ws[f"A{row}"] = key
+        ws[f"B{row}"] = value
 
     wb.save(output)
 
