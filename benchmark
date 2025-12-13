@@ -206,40 +206,6 @@ def combine(files: list[Path]) -> Path:
         for cell in filter(lambda cell: cell.value is not None, row[1:]):
             highlight(ws, cell)
 
-    # Calculate the average results for each category accross each variant.
-    averages = [[0 for _ in range(6)] for _ in range(len(configs) - 1)]  # 6 categories of ROP metrics x number of scheduling variants.
-    totals = [[0 for _ in range(6)] for _ in range(len(configs))]
-    weighted = deepcopy(totals)
-
-    for benchmark in range(len(files)):
-        srow = benchmark * len(configs) + 2
-        for i, row in enumerate(ws.iter_rows(srow, srow + len(configs) - 1)):
-            for j, cell in enumerate(row[2:]):
-                value = str(cell.value)
-                if i == 0:
-                    totals[0][j] += float(value)
-                else:
-                    difference = cell.value[value.find('(') + 1: value.find(')')]
-                    total = cell.value[:value.find('(')]
-                    averages[i - 1][j] += float(difference)
-                    totals[i][j] += float(total)
-
-                if j % 2 == 1:
-                    if i == 0:
-                        quality = float(value)
-                    else:
-                        quality = float(cell.value[:value.find('(')])
-
-                    cell = row[j + 1]
-                    value = cell.value
-
-                    if i == 0:
-                        quantity = float(value)
-                    else:
-                        quantity = float(cell.value[:value.find('(')])
-
-                    weighted[i][j] += quantity * quality
-
     lrow = ws.max_row + 2
 
     for col in range(1, ws.max_column + 1):
@@ -255,49 +221,82 @@ def combine(files: list[Path]) -> Path:
     
     ws.cell(ws.max_row, 1).value = "Summary Metric"
 
-    def section(title: str, row: int, values: list[list]) -> None:
-        ws.merge_cells(start_row=row, start_column=1, end_row=row + len(configs) - 2, end_column=1)
-        cell = ws.cell(row, 1, title)
+    # Calculate the average results for each category accross each variant.
+    number_of_scheduling_configs = len(configs)
+    number_of_scheduling_variants = number_of_scheduling_configs - 1
+    number_of_benchmarks = len(files)
+    number_of_rop_metrics = 6
+
+    def matrix(rows: int, columns: int) -> list[list[float]]:
+        return [[0.0 for _ in range(columns)] for _ in range(rows)]
+
+    def strip(value: str, difference: bool = False) -> float:
+        if not difference:
+            index = value.find("(") if "(" in value else len(value)
+            stripped = value[:index]
+        else:
+            stripped = value[value.find("(") + 1:value.find(")")]
+
+        return float(stripped)
+
+    average_differences = matrix(number_of_scheduling_variants, number_of_rop_metrics)
+    average_percent_differences = matrix(number_of_scheduling_variants, number_of_rop_metrics)
+    average_weighted_percent_differences = matrix(number_of_scheduling_configs, number_of_rop_metrics)
+    baseline = None
+
+    for benchmark in range(number_of_benchmarks):
+        start_row = benchmark * len(configs) + 2
+
+        for c in range(number_of_rop_metrics):
+            for r in range(number_of_scheduling_configs):
+                row = ws[start_row + r][2:]
+                cell = row[c]
+                raw_value = str(cell.value)
+
+                if c % 2 == 1:
+                    gadget_quality = strip(raw_value)
+                    gadget_count = strip(str(row[c - 1].value))
+                    weighted_value = gadget_count * gadget_quality
+                    average_weighted_percent_differences[r][c] += weighted_value
+                else:
+                    gaget_count = strip(raw_value)
+                    average_weighted_percent_differences[r][c] += gaget_count
+
+                if r == 0:
+                    baseline = float(raw_value)
+                else:
+                    difference = strip(raw_value, True)
+                    average_differences[r - 1][c] += difference
+                    percent_difference = difference / baseline
+                    average_percent_differences[r - 1][c] += percent_difference
+
+    for r in range(number_of_scheduling_variants):
+        for c in range(number_of_rop_metrics):
+            average_differences[r][c] /= number_of_benchmarks
+            average_percent_difference = average_percent_differences[r][c] / number_of_benchmarks
+            average_percent_differences[r][c] = f"{'+' if average_percent_difference > 0 else ''}{average_percent_difference:.2%}"
+
+    for r in range(1, number_of_scheduling_configs):
+        for c in range(number_of_rop_metrics):
+            percent_difference = 1 - average_weighted_percent_differences[r][c] / average_weighted_percent_differences[0][c]
+            average_weighted_percent_differences[r][c] = f"{'+' if percent_difference > 0 else ''}{percent_difference:.2%}"
+
+    def write_section(title: str, start_row: int, values: list[list]) -> None:
+        ws.merge_cells(start_row=start_row, start_column=1, end_row=start_row + len(configs) - 2, end_column=1)
+        cell = ws.cell(start_row, 1, title)
         cell.alignment = Alignment(vertical="center", horizontal="center")
 
         for i, config in enumerate(list(configs.keys())[1:]):
-            ws.cell(row + i, 2, config)
+            ws.cell(start_row + i, 2, config)
 
         for i in range(len(values)):
             for j in range(len(values[0])):
-                cell = ws.cell(row + i, 3 + j, value=format(values[i][j]))
+                cell = ws.cell(start_row + i, 3 + j, value=format(values[i][j]))
                 highlight(ws, cell)
 
-    for i in range(len(averages)):
-        for j in range(len(averages[0])):
-            averages[i][j] /= len(files)
-
-    section("Average Difference", ws.max_row + 1, averages)
-
-    apercentages = deepcopy(averages)
-
-    for i in range(1, len(apercentages) + 1):
-        for j in range(len(apercentages[0])):
-            baseline = totals[0][j]
-            percentage = (totals[i][j] - baseline) / baseline
-            apercentages[i - 1][j] = f"{'+' if percentage > 0 else ''}{percentage:.2%}"
-
-    section("Total Percent Difference", ws.max_row + 2, apercentages)
-
-    wpercentages = deepcopy(averages)
-
-    for i in range(1, len(wpercentages) + 1):
-        for j in range(0, len(wpercentages[0]), 2):
-            baseline = totals[0][j]
-            wpercentage = (totals[i][j] - baseline) / baseline
-            wpercentages[i - 1][j] = f"{'+' if wpercentage > 0 else ''}{wpercentage:.2%}"
-
-        for j in range(1, len(wpercentages[0]), 2):
-            baseline = weighted[0][j]
-            wpercentage = (weighted[i][j] - baseline) / baseline
-            wpercentages[i - 1][j] = f"{'+' if wpercentage > 0 else ''}{wpercentage:.2%}"
-    
-    section("Weighted Percent Difference", ws.max_row + 2, wpercentages)
+    write_section("Average Difference", ws.max_row + 1, average_differences)
+    write_section("Average Percent Difference", ws.max_row + 1, average_percent_differences)
+    write_section("Weighted Average Percent Difference", ws.max_row + 1, average_weighted_percent_differences[1:])
 
     # Write the flags for the run.
     lrow = ws.max_row + 2
@@ -381,4 +380,7 @@ except KeyboardInterrupt:
         print(f"Benchmark results compiled at {output}")
 
 except Exception as exception:
-    print(f"An unexpected error occurred: {exception}")
+    print(f"An unexpected error occurred: {exception}\n")
+
+    import traceback
+    traceback.print_exc()
