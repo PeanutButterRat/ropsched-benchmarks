@@ -27,6 +27,8 @@ parser.add_argument("-d", "--debug", action="store_true", help="Show command out
 parser.add_argument("-t", "--timeout", type=int, default=None, help="Timeout in seconds for a single command invocation")
 parser.add_argument("--show-times", action="store_true", help="Display the time it takes for each benchmark to complete")
 parser.add_argument("--skip-compilation", action="store_true", help="Skip the building and comparing steps, just combine the CSV files")
+parser.add_argument("-s", "--sheet-name", type=str, default=None, help="The name of the sheet")
+parser.add_argument("-o", "--output", type=str, default="results.xlsx", help="The name of the workbook")
 args = parser.parse_args()
 
 configs = {
@@ -41,8 +43,13 @@ clang = cwd / "llvm-ropsched/build/bin/clang"
 gsa = cwd / "GadgetSetAnalyzer"
 results = cwd / "results"
 binaries = results / "binaries"
-output = results / "results.xlsx"
-now = datetime.now().strftime("%b %d, %Y %I∶%M∶%S %p")
+output = results / args.output
+start_time = datetime.now()
+
+if args.sheet_name is not None:
+    sheet_name = args.sheet_name
+else:
+    sheet_name = start_time.strftime("%b %d, %Y %I∶%M∶%S %p")
 
 benchmarks = cwd / "benchmarks"
 benchmarks = list(benchmarks.iterdir())
@@ -193,7 +200,7 @@ def combine(files: list[Path]) -> Path:
         if_new_sheet_exists = None
 
     with pd.ExcelWriter(output, engine="openpyxl", mode=mode, if_sheet_exists=if_new_sheet_exists) as writer:
-        data.to_excel(writer, sheet_name=now, index=False)
+        data.to_excel(writer, sheet_name=sheet_name, index=False)
 
     # Format the results to be a little prettier.
     wb = load_workbook(output)
@@ -348,6 +355,7 @@ try:
     if not os.path.exists(binaries):
         os.makedirs(binaries)
 
+    csvs = []
     start = time()
     files = []
 
@@ -405,17 +413,20 @@ try:
                 files.append(csv)
 
 
-    output = combine(files)
-    print(f"Benchmark results compiled at {output}")
+    csvs = combine(files)
 
 except KeyboardInterrupt:
     if files:
         print(f"Stopping early, compiling results from {len(files)}/{len(benchmarks)} benchmarks...")
-        output = combine(files)
-        print(f"Benchmark results compiled at {output}")
+        csvs = combine(files)
 
 except Exception as exception:
     print(f"An unexpected error occurred: {exception}\n")
-
     import traceback
     traceback.print_exc()
+
+if csvs:
+    end_time = datetime.now()
+    delta = end_time - start_time
+    seconds = int(delta.total_seconds())
+    print(f"Benchmark results compiled at {output}. Total time: {ftime(seconds)}")
