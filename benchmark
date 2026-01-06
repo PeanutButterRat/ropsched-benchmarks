@@ -28,7 +28,8 @@ parser.add_argument("-t", "--timeout", type=int, default=None, help="Timeout in 
 parser.add_argument("--show-times", action="store_true", help="Display the time it takes for each benchmark to complete")
 parser.add_argument("--skip-compilation", action="store_true", help="Skip the building and comparing steps, just combine the CSV files")
 parser.add_argument("-s", "--sheet-name", type=str, default=None, help="The name of the sheet")
-parser.add_argument("-o", "--output", type=str, default="results.xlsx", help="The name of the workbook")
+parser.add_argument("-o", "--output", type=str, default="results.xlsx", help="The name of the workbook to output")
+parser.add_argument("-a", "--architecture", type=str, default="x86-64", help="The architecture to compile for (x86-64 or aarch64)")
 args = parser.parse_args()
 
 configs = {
@@ -78,6 +79,16 @@ if args.configs != "all":
     for config in list(configs.keys()):
         if config.lower() != "default" and config.lower() not in selected:
             del configs[config]
+
+# Validate the target architecture.
+architecture = args.architecture.lower()
+
+if architecture not in ["x86-64", "aarch64"]:
+    parser.error(f"unknown architecture '{architecture}' is neither 'x86-64' nor 'aarch64'")
+
+target = "aarch64-unknown-linux-gnu" if architecture == "aarch64" else "x86_64-unknown-linux-gnu"
+linker = "aarch64-linux-gnu-gcc" if architecture == "aarch64" else "x86_64-unknown-linux-gnu"
+
 
 def format(x: float | str) -> str:
     if isinstance(x, str):
@@ -136,7 +147,7 @@ def find(benchmark: str, release: Path) -> Path | None:
 
 
 def build(benchmark: Path, update: Callable[[str], None]) -> list[Path]:
-    release = benchmark / "target" / "release"
+    release = benchmark / "target" / target / "release"
     binary = None
     paths = []
 
@@ -147,12 +158,14 @@ def build(benchmark: Path, update: Callable[[str], None]) -> list[Path]:
         flags = misched.split(" ") + args.flags.split(" ")
         flags = [f"-C llvm-args={flag}" for flag in flags]
         flags = " ".join(flags)
+
         env = os.environ.copy()
         env["RUSTFLAGS"] = flags
         env["RUSTUP_TOOLCHAIN"] = "ropsched"
+        env["CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER"] = linker
 
         update(config)  # Update the status bar with the current step.
-        run(["cargo", "build", "--release"], benchmark, env=env)
+        run(["cargo", "build", "--release", "--target", target], benchmark, env=env)
 
         if binary is None:
             binary = find(benchmark.name, release)
@@ -175,7 +188,7 @@ def compare(original: Path, variants: list[Path]) -> Path:
     if os.path.exists(output):
         shutil.rmtree(output)
 
-    run(["python3", "src/GSA.py", str(original), "--variants", *variants, "--output_metrics", "--result_folder_name", name], cwd=gsa)
+    run(["python3", "src/GSA.py", str(original), "--variants", *variants, "--result_folder_name", name], cwd=gsa)
 
     return output / "Gadget Quality.csv"
 
