@@ -33,10 +33,10 @@ parser.add_argument("-a", "--architecture", type=str, default="x86-64", help="Th
 args = parser.parse_args()
 
 configs = {
-    "Default": "--misched=default --misched-postra=false",
-    "Pre-RA": "--misched=ropsched --misched-postra=false",
-    "Post-RA": "--misched=default --misched-postra=true",
-    "Both": "--misched=ropsched --misched-postra=true",
+    "Default": "--misched=default --misched-postra=false --enable-ropsched-postra=false" ,
+    "Pre-RA": "--misched=ropsched --misched-postra=false --enable-ropsched-postra=false",
+    "Post-RA": "--misched=default --misched-postra=true --enable-ropsched-postra=true",
+    "Both": "--misched=ropsched --misched-postra=true --enable-ropsched-postra=true",
 }
 
 cwd = Path(os.path.realpath(__file__)).expanduser().resolve().parent  # Everything is relative to where this script is actually located.
@@ -188,7 +188,7 @@ def compare(original: Path, variants: list[Path]) -> Path:
     if os.path.exists(output):
         shutil.rmtree(output)
 
-    run(["python3", "src/GSA.py", str(original), "--variants", *variants, "--result_folder_name", name], cwd=gsa)
+    run(["python3", "src/GSA.py", str(original), "--variants", *variants, "--result_folder_name", name, "--architecture", architecture], cwd=gsa)
 
     return output / "Gadget Quality.csv"
 
