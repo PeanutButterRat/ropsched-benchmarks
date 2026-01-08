@@ -286,8 +286,8 @@ def combine(files: list[Path]) -> Path:
                     weighted_value = gadget_count * gadget_quality
                     average_weighted_percent_differences[r][c] += weighted_value
                 else:
-                    gaget_count = strip(raw_value)
-                    average_weighted_percent_differences[r][c] += gaget_count
+                    gadget_count = strip(raw_value)
+                    average_weighted_percent_differences[r][c] += gadget_count
 
                 if r == 0:
                     baseline = float(raw_value)
@@ -305,7 +305,7 @@ def combine(files: list[Path]) -> Path:
 
     for r in range(1, number_of_scheduling_configs):
         for c in range(number_of_rop_metrics):
-            percent_difference = 1 - average_weighted_percent_differences[r][c] / average_weighted_percent_differences[0][c]
+            percent_difference = average_weighted_percent_differences[r][c] / average_weighted_percent_differences[0][c] - 1
             average_weighted_percent_differences[r][c] = f"{'+' if percent_difference > 0 else ''}{percent_difference:.2%}"
 
     def write_section(title: str, start_row: int, values: list[list]) -> None:
