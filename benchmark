@@ -33,7 +33,7 @@ parser.add_argument("-a", "--architecture", type=str, default="x86-64", help="Th
 args = parser.parse_args()
 
 configs = {
-    "Default": "--misched=default --misched-postra=false --enable-ropsched-postra=false" ,
+    "Default": "--misched=default --misched-postra=false --enable-ropsched-postra=false",
     "Pre-RA": "--misched=ropsched --misched-postra=false --enable-ropsched-postra=false",
     "Post-RA": "--misched=default --misched-postra=true --enable-ropsched-postra=true",
     "Both": "--misched=ropsched --misched-postra=true --enable-ropsched-postra=true",
@@ -117,8 +117,24 @@ def highlight(ws: Worksheet, cell: Cell) -> None:
         cell.style = "Neutral"
 
 
-def run(cmd: str, cwd: Path, env: dict = None) -> None:
-    stdout, stderr = (None, None) if args.debug else (subprocess.DEVNULL, subprocess.DEVNULL)
+def run(cmd: list[str], cwd: Path, env: dict = None) -> None:
+    if args.debug:
+        if env:
+            environment = {
+                key: env[key] for key in [
+                    "RUSTFLAGS",
+                    "RUSTUP_TOOLCHAIN",
+                    "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER",
+                ]
+            }
+            print(f"ENV: {environment}")
+
+        stdout, stderr = (None, None)
+        print(f"CWD: {cwd}")
+        print(f"CMD: {' '.join(cmd)}")
+    else:
+        stdout, stderr = (subprocess.DEVNULL, subprocess.DEVNULL)
+
     subprocess.run(cmd, cwd=cwd, env=env, stdout=stdout, stderr=stderr, check=True, timeout=args.timeout)
 
 
@@ -155,7 +171,10 @@ def build(benchmark: Path, update: Callable[[str], None]) -> list[Path]:
         if os.path.exists(release):
             shutil.rmtree(release)
 
-        flags = misched.split(" ") + args.flags.split(" ")
+        flags = misched.split(" ")
+        if args.flags:
+            flags += args.flags.split(" ")
+
         flags = [f"-C llvm-args={flag}" for flag in flags]
         flags = " ".join(flags)
 
@@ -329,7 +348,7 @@ def combine(files: list[Path]) -> Path:
     # Write the metadata for the run.
     start_row = ws.max_row + 2
 
-    ws.merge_cells(f"A{start_row}:I{start_row}")
+    ws.merge_cells(f"A{start_row}:H{start_row}")
     emphasize(ws[f"A{start_row}"])
     ws[f"A{start_row}"].value = "Run Information"
 
@@ -353,7 +372,7 @@ def combine(files: list[Path]) -> Path:
 
     for offset, (key, value) in enumerate(metadata.items()):
         row = start_row + offset
-        ws.merge_cells(f"B{row}:I{row}")
+        ws.merge_cells(f"B{row}:H{row}")
         ws[f"A{row}"].alignment = Alignment(vertical="center", horizontal="center")
         ws[f"A{row}"].font = Font(bold=True)
         ws[f"A{row}"] = key
@@ -396,6 +415,10 @@ try:
                     files.append(csv)
                 except Exception as e:
                     print(f"Error with {benchmark.name}: {e}")
+
+                    if args.debug:
+                        import traceback
+                        traceback.print_exc()
 
                 completed = progress.tasks[task].completed + 1
                 total = progress.tasks[task].total
