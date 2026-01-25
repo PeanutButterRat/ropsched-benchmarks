@@ -22,7 +22,7 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn
 parser = argparse.ArgumentParser(description="Benchmark LLVM scheduler configurations with GadgetSetAnalyzer.")
 parser.add_argument("-b", "--benchmarks", default="all", help="Benchmarks to run (comma-separated list)")
 parser.add_argument("-c", "--configs", default="all", help="Scheduling configs to run (comma-separated list: [pre-ra, post-ra, both])")
-parser.add_argument("-f", "--flags", default="", help="Clang flags to use when compiling benchmarks")
+parser.add_argument("-f", "--flags", default="", help="Extra LLVM flags to use when compiling benchmarks")
 parser.add_argument("-d", "--debug", action="store_true", help="Show command output")
 parser.add_argument("-t", "--timeout", type=int, default=None, help="Timeout in seconds for a single command invocation")
 parser.add_argument("--show-times", action="store_true", help="Display the time it takes for each benchmark to complete")
@@ -40,7 +40,7 @@ configs = {
 }
 
 cwd = Path(os.path.realpath(__file__)).expanduser().resolve().parent  # Everything is relative to where this script is actually located.
-clang = cwd / "llvm-ropsched/build/bin/clang"
+llvm_dylib = cwd / "llvm-ropsched/build/lib"
 gsa = cwd / "GadgetSetAnalyzer"
 results = cwd / "results"
 binaries = results / "binaries"
@@ -182,6 +182,7 @@ def build(benchmark: Path, update: Callable[[str], None]) -> list[Path]:
         env["RUSTFLAGS"] = flags
         env["RUSTUP_TOOLCHAIN"] = "ropsched"
         env["CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER"] = linker
+        env["LD_LIBRARY_PATH"] = f"{llvm_dylib}:{env.get('LD_LIBRARY_PATH', '')}"
 
         update(config)  # Update the status bar with the current step.
         run(["cargo", "build", "--release", "--target", target], benchmark, env=env)
@@ -448,8 +449,10 @@ try:
                 csv = gsa / "results" / filename / "Gadget Quality.csv"
                 files.append(csv)
 
-
-    csvs = combine(files)
+    if not files:
+        print("Error: no benchmarks successfully completed!")
+    else:
+        csvs = combine(files)
 
 except KeyboardInterrupt:
     if files:
