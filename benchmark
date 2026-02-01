@@ -30,6 +30,7 @@ parser.add_argument("--skip-compilation", action="store_true", help="Skip the co
 parser.add_argument("-s", "--sheet-name", type=str, default=None, help="The name of the sheet")
 parser.add_argument("-o", "--output", type=str, default="results.xlsx", help="The name of the workbook to output")
 parser.add_argument("-a", "--architecture", type=str, default="x86-64", help="The architecture to compile for (x86-64 or aarch64)")
+parser.add_argument("--benchmark-directory", default="benchmarks", help="Directory where the benchmark repositories are")
 args = parser.parse_args()
 
 configs = {
@@ -52,7 +53,11 @@ if args.sheet_name is not None:
 else:
     sheet_name = start_time.strftime("%b %d, %Y %I∶%M∶%S %p")
 
-benchmarks = cwd / "benchmarks"
+benchmarks = cwd / args.benchmark_directory
+
+if not os.path.isdir(benchmarks):
+    parser.error(f"couldn't find {benchmarks}")
+
 benchmarks = list(benchmarks.iterdir())
 
 # Validate only available benchmarks were selected.
@@ -86,8 +91,11 @@ architecture = args.architecture.lower()
 if architecture not in ["x86-64", "aarch64"]:
     parser.error(f"unknown architecture '{architecture}' is neither 'x86-64' nor 'aarch64'")
 
-target = "aarch64-unknown-linux-gnu" if architecture == "aarch64" else "x86_64-unknown-linux-gnu"
-linker = "aarch64-linux-gnu-gcc" if architecture == "aarch64" else "x86_64-unknown-linux-gnu"
+target, linker = None, None
+
+if architecture == "aarch64":
+    target = "aarch64-unknown-linux-gnu"
+    linker = "aarch64-linux-gnu-gcc"
 
 
 def format(x: float | str) -> str:
@@ -121,7 +129,7 @@ def run(cmd: list[str], cwd: Path, env: dict = None) -> None:
     if args.debug:
         if env:
             environment = {
-                key: env[key] for key in [
+                key: env.get(key) for key in [
                     "RUSTFLAGS",
                     "RUSTUP_TOOLCHAIN",
                     "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER",
@@ -163,7 +171,11 @@ def find(benchmark: str, release: Path) -> Path | None:
 
 
 def build(benchmark: Path, update: Callable[[str], None]) -> list[Path]:
-    release = benchmark / "target" / target / "release"
+    if target:
+        release = benchmark / "target" / target / "release"
+    else:
+        release = benchmark / "target" / "release"
+
     binary = None
     paths = []
 
@@ -181,11 +193,17 @@ def build(benchmark: Path, update: Callable[[str], None]) -> list[Path]:
         env = os.environ.copy()
         env["RUSTFLAGS"] = flags
         env["RUSTUP_TOOLCHAIN"] = "ropsched"
-        env["CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER"] = linker
         env["LD_LIBRARY_PATH"] = f"{llvm_dylib}:{env.get('LD_LIBRARY_PATH', '')}"
 
+        if linker:
+            env["CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER"] = linker
+
         update(config)  # Update the status bar with the current step.
-        run(["cargo", "build", "--release", "--target", target], benchmark, env=env)
+
+        if target:
+            run(["cargo", "build", "--release", "--target", target], benchmark, env=env)
+        else:
+            run(["cargo", "build", "--release"], benchmark, env=env)
 
         if binary is None:
             binary = find(benchmark.name, release)
@@ -434,7 +452,7 @@ try:
                 files.append(csv)
 
     if not files:
-        print("Error: no benchmarks successfully completed!")
+        print("Error: no benchmarks completed successfully!")
     else:
         csvs = combine(files)
 
