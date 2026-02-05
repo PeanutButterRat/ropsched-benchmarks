@@ -1,0 +1,9 @@
+[submodule "rust-ropsched"]
+	path = rust-ropsched
+	url = https://github.com/PeanutButterRat/rust-ropsched.git
+[submodule "GadgetSetAnalyzer"]
+	path = GadgetSetAnalyzer
+	url = https://github.com/PeanutButterRat/GadgetSetAnalyzer.git
+[submodule "llvm-ropsched"]
+	path = llvm-ropsched
+	url = https://github.com/PeanutButterRat/llvm-ropsched.git

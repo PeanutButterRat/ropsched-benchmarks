@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -e
+
+# Find the absolute path of where this script is located.
+PROJECT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Build llvm-ropsched.
+cd "$PROJECT_PATH/llvm-ropsched"
+cmake -S llvm -B build -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DLLVM_ENABLE_ASSERTIONS=True \
+  -DLLVM_TARGETS_TO_BUILD="X86;AArch64" \
+  -DLLVM_ENABLE_RTTI=ON \
+  -DLLVM_ENABLE_EH=ON \
+  -DLLVM_BUILD_LLVM_DYLIB=ON \
+  -DLLVM_LINK_LLVM_DYLIB=ON
+
+cmake --build build
+
+# Add the build directory where libclang-cpp.so.21.1 is located to the library path so Rust can find the dylib.
+LLVM_DYLIB_PATH="$PROJECT_PATH/llvm-ropsched/build/lib/"
+export LD_LIBRARY_PATH="$LLVM_DYLIB_PATH:$LD_LIBRARY_PATH"
+
+# Build the rust compiler with llvm-ropsched backend.
+cd "$PROJECT_PATH/rust-ropsched"
+
+# Build the compiler.
+./x.py clean
+./x.py build --stage 2
+
+# Create the toolchain.
+rustup toolchain link ropsched "$PROJECT_PATH/rust-ropsched/build/x86_64-unknown-linux-gnu/stage2"
