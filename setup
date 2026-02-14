@@ -6,19 +6,27 @@ PROJECT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Build llvm-ropsched.
 cd "$PROJECT_PATH/llvm-ropsched"
-cmake -S llvm -B build -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DLLVM_ENABLE_ASSERTIONS=True \
+cmake -S llvm -B build -G Ninja         \
+  -DCMAKE_BUILD_TYPE=Release            \
+  -DLLVM_ENABLE_ASSERTIONS=True         \
   -DLLVM_TARGETS_TO_BUILD="X86;AArch64" \
-  -DLLVM_ENABLE_RTTI=ON \
-  -DLLVM_ENABLE_EH=ON \
-  -DLLVM_BUILD_LLVM_DYLIB=ON \
+  -DLLVM_ENABLE_RTTI=ON                 \
+  -DLLVM_ENABLE_EH=ON                   \
+  -DLLVM_BUILD_LLVM_DYLIB=ON            \
   -DLLVM_LINK_LLVM_DYLIB=ON
+
+# Rust fails to compile due to linking issues with Capstone when after building LLVM as a static library.
+# The only solution I found was to build it as a dynamic library instead.
 
 cmake --build build
 
 # Add the build directory where libclang-cpp.so.21.1 is located to the library path so Rust can find the dylib.
 LLVM_DYLIB_PATH="$PROJECT_PATH/llvm-ropsched/build/lib/"
+
+# For some reason, LLVM doesn't generate 'libLLVM-21.so', just 'libLLVM.so.21.1' but Rust and llvm-config expect libLLVM-21.so.
+# To fix this, just create a symbolic link to the original dynamic library.
+ln -sf "$LLVM_DYLIB_PATH/libLLVM.so.21.1" "$LLVM_DYLIB_PATH/libLLVM-21.so"
+
 export LD_LIBRARY_PATH="$LLVM_DYLIB_PATH:$LD_LIBRARY_PATH"
 
 # Build the rust compiler with llvm-ropsched backend.
