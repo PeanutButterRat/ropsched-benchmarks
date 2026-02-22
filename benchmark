@@ -98,10 +98,7 @@ if architecture == "aarch64":
     linker = "aarch64-linux-gnu-gcc"
 
 
-def format(x: float | str) -> str:
-    if isinstance(x, str):
-        return x
-
+def format(x: float) -> str:
     sign = "+" if x > 0 else ""
     return f"{sign}{x:.3f}"
 
@@ -120,9 +117,9 @@ def highlight(ws: Worksheet, cell: Cell, configs: int) -> None:
     baseline = ws.cell(baseline_row, cell.column)
     value = str(cell.value)
 
-    if ("+" in value and "Quality" in header) or ("-" in value and "#" in header) or (value == "No" and baseline == "Yes"):
+    if ("+" in value) or (value == "No" and baseline == "Yes"):
         cell.style = "Good"
-    elif ("-" in value and "Quality" in header) or ("+" in value and "#" in header) or (value == "Yes" and baseline == "No"):
+    elif ("-" in value) or (value == "Yes" and baseline == "No"):
         cell.style = "Bad"
     elif ("(" in value) or ("Chain" in header and value == baseline.value and cell.row != baseline.row):
         cell.style = "Neutral"
@@ -299,13 +296,9 @@ def combine(files: list[Path]) -> Path:
     def matrix(rows: int, columns: int, value: float = 0.0) -> list[list[float]]:
         return [[value for _ in range(columns)] for _ in range(rows)]
 
-    def strip(value: str, difference: bool = False) -> float:
-        if not difference:
-            index = value.find("(") if "(" in value else len(value)
-            stripped = value[:index]
-        else:
-            stripped = value[value.find("(") + 1:value.find(")")]
-
+    def strip(value: str) -> float:
+        index = value.find("(") if "(" in value else len(value)
+        stripped = value[:index]
         return float(stripped)
 
     arithmetic_totals = matrix(number_of_scheduling_configs, number_of_rop_metrics)
@@ -329,13 +322,20 @@ def combine(files: list[Path]) -> Path:
 
     for r in range(1, number_of_scheduling_configs):
         for c in range(number_of_rop_metrics):
-            average_differences[r - 1][c] = (arithmetic_totals[r][c] - arithmetic_totals[0][c]) / number_of_benchmarks
-
+            average_difference = (arithmetic_totals[r][c] - arithmetic_totals[0][c]) / number_of_benchmarks
             arithmetic_percentage = arithmetic_totals[r][c] / arithmetic_totals[0][c] - 1
-            arithmetic_percent_differences[r - 1][c] = f"{'+' if arithmetic_percentage > 0 else ''}{arithmetic_percentage:.2%}"
+            geometric_percentage = geometric_totals[r][c]**(1 / number_of_benchmarks) / geometric_totals[0][c]**(1 / number_of_benchmarks) - 1
 
-            geometric_percentage = geometric_totals[r][c]**(1/number_of_benchmarks) / geometric_totals[0][c]**(1/number_of_benchmarks) - 1
-            geometric_percent_differences[r - 1][c] = f"{'+' if geometric_percentage > 0 else ''}{geometric_percentage:.2%}"
+            # Swap the sign for the gadget count metrics so that positive metrics are improvements. This means
+            # that reductions in gadget counts have to show as positive.
+            if c % 2 == 0:
+                average_difference *= -1
+                arithmetic_percentage *= -1
+                geometric_percentage *= -1
+
+            average_differences[r - 1][c] = average_difference
+            arithmetic_percent_differences[r - 1][c] = arithmetic_percentage
+            geometric_percent_differences[r - 1][c] = geometric_percentage
 
     def write_section(title: str, start_row: int, values: list[list]) -> None:
         ws.merge_cells(start_row=start_row, start_column=1, end_row=start_row + len(configs) - 2, end_column=1)
