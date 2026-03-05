@@ -98,9 +98,16 @@ if architecture == "aarch64":
     linker = "aarch64-linux-gnu-gcc"
 
 
-def format(x: float) -> str:
+def format(x: float | str) -> str:
+    if isinstance(x, str):
+        return x
+
     sign = "+" if x > 0 else ""
     return f"{sign}{x:.3f}"
+
+def percentage(x: float) -> str:
+    sign = "+" if x > 0 else ""
+    return f"{sign}{x:.2%}"
 
 
 def ftime(seconds: int):
@@ -334,8 +341,8 @@ def combine(files: list[Path]) -> Path:
                 geometric_percentage *= -1
 
             average_differences[r - 1][c] = average_difference
-            arithmetic_percent_differences[r - 1][c] = arithmetic_percentage
-            geometric_percent_differences[r - 1][c] = geometric_percentage
+            arithmetic_percent_differences[r - 1][c] = percentage(arithmetic_percentage)
+            geometric_percent_differences[r - 1][c] = percentage(geometric_percentage)
 
     def write_section(title: str, start_row: int, values: list[list]) -> None:
         ws.merge_cells(start_row=start_row, start_column=1, end_row=start_row + len(configs) - 2, end_column=1)
