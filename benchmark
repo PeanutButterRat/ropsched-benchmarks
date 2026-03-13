@@ -33,12 +33,40 @@ parser.add_argument("-a", "--architecture", type=str, default="x86-64", help="Th
 parser.add_argument("--benchmark-directory", default="benchmarks", help="Directory where the benchmark repositories are")
 args = parser.parse_args()
 
-configs = {
-    "Default": "--misched=default --misched-postra=false --enable-ropsched-postra=false",
-    "Pre-RA": "--misched=ropsched --misched-postra=false --enable-ropsched-postra=false",
-    "Post-RA": "--misched=default --misched-postra=true --enable-ropsched-postra=true",
-    "Both": "--misched=ropsched --misched-postra=true --enable-ropsched-postra=true",
-}
+# Validate the target architecture and scheduling configs.
+architecture = args.architecture.lower()
+valid_architectures = ["x86-64", "aarch64-trie", "aarch64-score", "aarch64-extended-score"]
+
+if architecture not in valid_architectures:
+    parser.error(f"unknown architecture '{architecture}' is not in {','.join(valid_architectures)}")
+
+target, linker = None, None
+
+if "aarch64" in architecture:
+    # The target and linker is only required for AArch64 (if you are cross-compiling I think).
+    target = "aarch64-unknown-linux-gnu"
+    linker = "aarch64-linux-gnu-gcc"
+
+    first_hyphen_index = architecture.find("-")
+    scheduler = architecture[first_hyphen_index + 1:]
+    configs = {
+        "Default": "--aarch64-prera-ropsched-strategy=default --aarch64-postra-ropsched-strategy=default",
+        "Pre-RA": f"--aarch64-prera-ropsched-strategy={scheduler} --aarch64-postra-ropsched-strategy=default",
+        "Post-RA": f"--aarch64-prera-ropsched-strategy=default --aarch64-postra-ropsched-strategy={scheduler}",
+        "Both": f"--aarch64-prera-ropsched-strategy={scheduler} --aarch64-postra-ropsched-strategy={scheduler}",
+    }
+else: # Target architecture is x86-64.
+    configs = {
+        "Default": "--enable-x86-capstone-ropsched=false",
+        "Post-RA": "--enable-x86-capstone-ropsched=true",
+    }
+
+    if args.configs != "all":
+        print(f"Warning: x86-64 scheduling is only enabled for post-RA, overriding argument '{args.configs}'")
+        args.configs = "all"
+
+# I don't think these flags are strictly required, but I included them just to be safe.
+configs = {config: flags + " --misched-postra=true --enable-misched=true" for config, flags in configs.items()}
 
 cwd = Path(os.path.realpath(__file__)).expanduser().resolve().parent  # Everything is relative to where this script is actually located.
 llvm_dylib = cwd / "llvm-ropsched/build/lib"
@@ -84,18 +112,6 @@ if args.configs != "all":
     for config in list(configs.keys()):
         if config.lower() != "default" and config.lower() not in selected:
             del configs[config]
-
-# Validate the target architecture.
-architecture = args.architecture.lower()
-
-if architecture not in ["x86-64", "aarch64"]:
-    parser.error(f"unknown architecture '{architecture}' is neither 'x86-64' nor 'aarch64'")
-
-target, linker = None, None
-
-if architecture == "aarch64":
-    target = "aarch64-unknown-linux-gnu"
-    linker = "aarch64-linux-gnu-gcc"
 
 
 def format(x: float | str) -> str:
@@ -233,6 +249,7 @@ def compare(original: Path, variants: list[Path]) -> Path:
     if os.path.exists(output):
         shutil.rmtree(output)
 
+    architecture = "aarch64" if "aarch64" in args.architecture.lower() else "x86-64"
     run(["python3", "src/GSA.py", str(original), "--variants", *variants, "--result_folder_name", name, "--architecture", architecture], cwd=gsa)
 
     return output / "Gadget Quality.csv"
