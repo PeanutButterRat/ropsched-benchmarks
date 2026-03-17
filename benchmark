@@ -65,8 +65,7 @@ else: # Target architecture is x86-64.
         print(f"Warning: x86-64 scheduling is only enabled for post-RA, overriding argument '{args.configs}'")
         args.configs = "all"
 
-# I don't think these flags are strictly required, but I included them just to be safe.
-configs = {config: flags + " --misched-postra=true --enable-misched=true" for config, flags in configs.items()}
+configs = {config: flags + " --enable-misched=true --misched-postra=true" for config, flags in configs.items()}
 
 cwd = Path(os.path.realpath(__file__)).expanduser().resolve().parent  # Everything is relative to where this script is actually located.
 llvm_dylib = cwd / "llvm-ropsched/build/lib"
