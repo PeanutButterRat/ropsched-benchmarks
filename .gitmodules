@@ -7,3 +7,6 @@
 [submodule "llvm-ropsched"]
 	path = llvm-ropsched
 	url = https://github.com/PeanutButterRat/llvm-ropsched.git
+[submodule "capstone"]
+	path = capstone
+	url = https://github.com/capstone-engine/capstone

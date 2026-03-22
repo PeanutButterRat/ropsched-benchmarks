@@ -25,10 +25,10 @@ This research project explores an instruction-scheduling approach to reduce the 
 git clone --recurse-submodules https://github.com/PeanutButterRat/ropsched.git
 ```
 
-2. Next, run the `setup` script. This will compile LLVM and the Rust compiler.
+2. Next, run the `setup` script. This will compile LLVM and the Rust compiler. It will also compile and install [Capstone](https://github.com/capstone-engine/capstone), which will require `sudo` permissions. 
 
 ```bash
-cd ropsched && ./setup
+cd ropsched && ./setup  # You'll be prompted for your password when it tries to install Capstone.
 ```
 
 3. Finally, set up a virtual environment (venv) and install the required Python packages.

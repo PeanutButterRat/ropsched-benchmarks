@@ -4,6 +4,12 @@ set -e
 # Find the absolute path of where this script is located.
 PROJECT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Build and install Capstone.
+cd "$PROJECT_PATH/capstone"
+cmake -B build -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+cmake --build build
+sudo cmake --install build
+
 # Build llvm-ropsched.
 cd "$PROJECT_PATH/llvm-ropsched"
 cmake -S llvm -B build -G Ninja         \
