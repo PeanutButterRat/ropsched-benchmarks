@@ -35,7 +35,7 @@ args = parser.parse_args()
 
 # Validate the target architecture and scheduling configs.
 architecture = args.architecture.lower()
-valid_architectures = ["x86-capstone", "x86-random", "aarch64-trie", "aarch64-score", "aarch64-extended-score"]
+valid_architectures = ["x86-capstone", "x86-random", "aarch64-trie", "aarch64-score"]
 
 if architecture not in valid_architectures:
     parser.error(f"unknown architecture '{architecture}' is not in {','.join(valid_architectures)}")
