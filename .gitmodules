@@ -10,3 +10,114 @@
 [submodule "capstone"]
 	path = capstone
 	url = https://github.com/capstone-engine/capstone
+[submodule "benchmarks/vproxy"]
+	path = benchmarks/vproxy
+	url = https://github.com/0x676e67/vproxy
+[submodule "benchmarks/dust"]
+	path = benchmarks/dust
+	url = https://github.com/bootandy/dust
+[submodule "benchmarks/broot"]
+	path = benchmarks/broot
+	url = https://github.com/Canop/broot
+[submodule "benchmarks/netscanner"]
+	path = benchmarks/netscanner
+	url = https://github.com/Chleba/netscanner
+[submodule "benchmarks/bottom"]
+	path = benchmarks/bottom
+	url = https://github.com/ClementTsang/bottom
+[submodule "benchmarks/rust-doom"]
+	path = benchmarks/rust-doom
+	url = https://github.com/cristicbz/rust-doom
+[submodule "benchmarks/doukutsu-rs"]
+	path = benchmarks/doukutsu-rs
+	url = https://github.com/doukutsu-rs/doukutsu-rs
+[submodule "benchmarks/xh"]
+	path = benchmarks/xh
+	url = https://github.com/ducaale/xh
+[submodule "benchmarks/brotli-rs"]
+	path = benchmarks/brotli-rs
+	url = https://github.com/ende76/brotli-rs
+[submodule "benchmarks/feroxbuster"]
+	path = benchmarks/feroxbuster
+	url = https://github.com/epi052/feroxbuster
+[submodule "benchmarks/eza"]
+	path = benchmarks/eza
+	url = https://github.com/eza-community/eza
+[submodule "benchmarks/zola"]
+	path = benchmarks/zola
+	url = https://github.com/getzola/zola
+[submodule "benchmarks/svgbob"]
+	path = benchmarks/svgbob
+	url = https://github.com/ivanceras/svgbob
+[submodule "benchmarks/bingrep"]
+	path = benchmarks/bingrep
+	url = https://github.com/m4b/bingrep
+[submodule "benchmarks/minirps"]
+	path = benchmarks/minirps
+	url = https://github.com/marcodpt/minirps
+[submodule "benchmarks/gameboy"]
+	path = benchmarks/gameboy
+	url = https://github.com/mohanson/gameboy
+[submodule "benchmarks/rip"]
+	path = benchmarks/rip
+	url = https://github.com/nivekuil/rip
+[submodule "benchmarks/kmon"]
+	path = benchmarks/kmon
+	url = https://github.com/orhun/kmon
+[submodule "benchmarks/oxipng"]
+	path = benchmarks/oxipng
+	url = https://github.com/oxipng/oxipng
+[submodule "benchmarks/saphir"]
+	path = benchmarks/saphir
+	url = https://github.com/richerarc/saphir
+[submodule "benchmarks/mdBook"]
+	path = benchmarks/mdBook
+	url = https://github.com/rust-lang/mdBook
+[submodule "benchmarks/rustup"]
+	path = benchmarks/rustup
+	url = https://github.com/rust-lang/rustup
+[submodule "benchmarks/rustls"]
+	path = benchmarks/rustls
+	url = https://github.com/rustls/rustls
+[submodule "benchmarks/rust-postgres"]
+	path = benchmarks/rust-postgres
+	url = https://github.com/rust-postgres/rust-postgres
+[submodule "benchmarks/xplr"]
+	path = benchmarks/xplr
+	url = https://github.com/sayanarijit/xplr
+[submodule "benchmarks/hyperfine"]
+	path = benchmarks/hyperfine
+	url = https://github.com/sharkdp/hyperfine
+[submodule "benchmarks/skytable"]
+	path = benchmarks/skytable
+	url = https://github.com/skytable/skytable
+[submodule "benchmarks/ssh-vault"]
+	path = benchmarks/ssh-vault
+	url = https://github.com/ssh-vault/ssh-vault
+[submodule "benchmarks/static-web-server"]
+	path = benchmarks/static-web-server
+	url = https://github.com/static-web-server/static-web-server
+[submodule "benchmarks/miniserve"]
+	path = benchmarks/miniserve
+	url = https://github.com/svenstaro/miniserve
+[submodule "benchmarks/taplo"]
+	path = benchmarks/taplo
+	url = https://github.com/tamasfe/taplo
+[submodule "benchmarks/http"]
+	path = benchmarks/http
+	url = https://github.com/thecoshman/http
+[submodule "benchmarks/simple-http-server"]
+	path = benchmarks/simple-http-server
+	url = https://github.com/TheWaWaR/simple-http-server
+[submodule "benchmarks/watchexec"]
+	path = benchmarks/watchexec
+	url = https://github.com/watchexec/watchexec
+[submodule "benchmarks/tokei"]
+	path = benchmarks/tokei
+	url = https://github.com/XAMPPRocky/tokei
+[submodule "benchmarks/zopfli"]
+	path = benchmarks/zopfli
+	url = https://github.com/zopfli-rs/zopfli
+[submodule "benchmarks/zoxide"]
+	path = benchmarks/zoxide
+	url = https://github.com/ajeetdsouza/zoxide
