@@ -39,7 +39,7 @@ cd RopSched && ./setup  # You might be prompted for your sudo password when it i
 5. Finally, set up a virtual environment and install the required Python packages.
 
 ```bash
-python3 -m venv .venv             # Create the virtual environment.
+python3 -m venv .venv            # Create the virtual environment.
 source .venv/bin/activate        # Activate the virtual environment.
 pip install -r requirements.txt  # Install the required packages.
 ```
