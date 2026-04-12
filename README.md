@@ -1,8 +1,3 @@
-[ROP]: https://en.wikipedia.org/wiki/Return-oriented_programming
-[JOP]: https://developer.arm.com/documentation/102433/0200/Jump-oriented-programming
-[COP]: https://www.scribd.com/document/937825119/Pure-Call-Oriented-Programming-PCOP
-
-
 # RopSched
 
 **RopSched** is an instruction-scheduling approach to limit the number of code reuse gadgets in programs compiled with LLVM. 
@@ -12,34 +7,42 @@ This work was completed as part of a research project for the graduate program i
 ## Background
 Binary exploitation is traditionally achieved by overflowing some portion of memory (usually on the stack) and overwriting a return address. By doing so, an attacker can redirect program execution to a payload (usually in the same buffer) to achieve arbitrary code execution. To help prevent simple exploits like this, platform vendors developed defense mechanisms such as **Data Execution Prevention (DEP)** on Windows and **No eXecute (NX)** on Linux.
 
-DEP and NX remove the executable permissions from the sections of memory that store data, which effectively disarms payloads injected in this way. However, clever researchers figured out how utilize existing program instructions to craft a payload anyway. By controlling the return address (through a buffer overflow), an attacker can jump to a short sequence of instructions that *already exists* elsewhere in the binary. If this sequence ends in another `return` instruction, the attacker can redirect control flow to a different sequence of instructions. By repeating this process, an attacker can start to chain together short sequences of assembly instructions to build out their payload by piece by piece. Since they aren't injecting any *new* instructions into the program and just reusing what is already available from the existing program logic, this bypasses the aforementioned defenses. These short instruction sequences are called **gadgets** and the process of chaining them together to achieve code execution is known as [return-oriented programming (ROP)][ROP].
+DEP and NX remove the executable permissions from the sections of memory that store data, which effectively disarms payloads injected in this way. However, clever researchers figured out how utilize existing program instructions to craft a payload anyway. By controlling the return address (through a buffer overflow), an attacker can jump to a short sequence of instructions that *already exists* elsewhere in the binary. If this sequence ends in another `return` instruction, the attacker can redirect control flow to a different sequence of instructions. By repeating this process, an attacker can start to chain together short sequences of assembly instructions to build out their payload by piece by piece. Since they aren't injecting any *new* instructions into the program and just reusing what is already available from the existing program logic, this bypasses the aforementioned defenses. These short instruction sequences are called **gadgets** and the process of chaining them together to achieve code execution is known as **return-oriented programming (ROP)**.
 
-Similar techniques also exist for instruction sequences that end in `jump` and `call` instructions as well because they also change the control flow of a program and can be chained together. Unsurprisingly, these techniques are called [jump-oriented programming (JOP)][JOP] and [call-oriented programming (COP)][COP] respectively. 
+Similar techniques also exist for instruction sequences that end in `jump` and `call` instructions as well because they also change the control flow of a program and can be chained together. Unsurprisingly, these techniques are called **jump-oriented programming (JOP)** and **call-oriented programming (COP)** respectively. 
 
-This research project explores an instruction-scheduling approach to reduce the attack surface of these techniques by reducing the number of usable gadgets an attacker has access to and by making the remaining gadgets more difficult to leverage. We chose to implement this in LLVM due to its widespread usage and the Rust compiler to benchmark the results because Rust has a standardized toolchain unlike C++ or C.
+This research project explores an instruction-scheduling approach to reduce the attack surface of these techniques by reducing the number of usable gadgets an attacker has access to and by making the remaining gadgets more difficult to leverage. We chose to implement this in LLVM due to its widespread usage and the Rust compiler to benchmark the results because Rust has a standardized toolchain unlike C and C++.
 
 ## Setup
-1. To run RopSched, first clone the repository and the required submodules.
-
+1. To run RopSched, first install all the necessary packages.
 ```bash
-git clone --recurse-submodules https://github.com/PeanutButterRat/ropsched.git
+sudo apt update && sudo apt install git build-essential ninja-build cmake curl gcc-aarch64-linux-gnu libssl-dev python3-venv
 ```
 
-2. Next, run the `setup` script. This will compile LLVM and the Rust compiler. It will also compile and install [Capstone](https://github.com/capstone-engine/capstone), which will require `sudo` permissions. 
+2. Next, clone the repository and the required submodules.
 
 ```bash
-cd ropsched && ./setup  # You'll be prompted for your password when it tries to install Capstone.
+git clone --recurse-submodules --shallow-submodules https://github.com/PeanutButterRat/RopSched.git
 ```
 
-3. Finally, set up a virtual environment (venv) and install the required Python packages.
+3. Install the default Rust toolchain.
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+4. Now run the `setup` script to build LLVM and the Rust compiler.
 
 ```bash
-python -m venv .venv             # Create the virtual environment.
+cd RopSched && ./setup  # You might be prompted for your sudo password when it installs Capstone.
+```
+
+5. Finally, set up a virtual environment and install the required Python packages.
+
+```bash
+python3 -m venv .venv             # Create the virtual environment.
 source .venv/bin/activate        # Activate the virtual environment.
 pip install -r requirements.txt  # Install the required packages.
 ```
-
-> If you don't have the `venv` package already installed, you can do so with `sudo apt install python3-venv`.
 
 You should now be ready to run the tests!
 
