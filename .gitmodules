@@ -28,9 +28,6 @@
 [submodule "benchmarks/rust-doom"]
 	path = benchmarks/rust-doom
 	url = https://github.com/cristicbz/rust-doom
-[submodule "benchmarks/doukutsu-rs"]
-	path = benchmarks/doukutsu-rs
-	url = https://github.com/doukutsu-rs/doukutsu-rs
 [submodule "benchmarks/xh"]
 	path = benchmarks/xh
 	url = https://github.com/ducaale/xh
@@ -55,9 +52,6 @@
 [submodule "benchmarks/minirps"]
 	path = benchmarks/minirps
 	url = https://github.com/marcodpt/minirps
-[submodule "benchmarks/gameboy"]
-	path = benchmarks/gameboy
-	url = https://github.com/mohanson/gameboy
 [submodule "benchmarks/rip"]
 	path = benchmarks/rip
 	url = https://github.com/nivekuil/rip
@@ -79,9 +73,6 @@
 [submodule "benchmarks/rustls"]
 	path = benchmarks/rustls
 	url = https://github.com/rustls/rustls
-[submodule "benchmarks/rust-postgres"]
-	path = benchmarks/rust-postgres
-	url = https://github.com/rust-postgres/rust-postgres
 [submodule "benchmarks/xplr"]
 	path = benchmarks/xplr
 	url = https://github.com/sayanarijit/xplr
@@ -109,9 +100,6 @@
 [submodule "benchmarks/simple-http-server"]
 	path = benchmarks/simple-http-server
 	url = https://github.com/TheWaWaR/simple-http-server
-[submodule "benchmarks/watchexec"]
-	path = benchmarks/watchexec
-	url = https://github.com/watchexec/watchexec
 [submodule "benchmarks/tokei"]
 	path = benchmarks/tokei
 	url = https://github.com/XAMPPRocky/tokei
