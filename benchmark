@@ -29,13 +29,13 @@ parser.add_argument("--show-times", action="store_true", help="Display the time 
 parser.add_argument("--skip-compilation", action="store_true", help="Skip the compilation and analysis steps, just combine the CSV files from a previous run")
 parser.add_argument("-s", "--sheet-name", type=str, default=None, help="The name of the sheet")
 parser.add_argument("-o", "--output", type=str, default="results.xlsx", help="The name of the workbook to output")
-parser.add_argument("-a", "--architecture", type=str, default="x86-capstone", help="The architecture to compile for (x86-64 or aarch64)")
+parser.add_argument("-a", "--architecture", type=str, default="x86-default", help="The architecture to compile for (x86-64 or aarch64)")
 parser.add_argument("--benchmark-directory", default="benchmarks", help="Directory where the benchmark repositories are")
 args = parser.parse_args()
 
 # Validate the target architecture and scheduling configs.
 architecture = args.architecture.lower()
-valid_architectures = ["x86-capstone", "x86-random", "aarch64-trie", "aarch64-score"]
+valid_architectures = ["x86-default", "x86-random", "aarch64-trie", "aarch64-score"]
 
 if architecture not in valid_architectures:
     parser.error(f"unknown architecture '{architecture}' is not in {','.join(valid_architectures)}")
@@ -57,8 +57,8 @@ if "aarch64" in architecture:
     }
 else: # Target architecture is x86-64.
     configs = {
-        "Default": f"--x86-postra-ropsched-strategy=default",
-        "Post-RA": f"--x86-postra-ropsched-strategy={scheduler}",
+        "Default": f"--x86-postra-ropsched-strategy={scheduler}",
+        "Post-RA": f"--x86-postra-ropsched-strategy=capstone",
     }
 
     if args.configs != "all":
